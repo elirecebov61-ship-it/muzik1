@@ -3,9 +3,10 @@ import os
 import logging
 from collections import deque
 
-from pytgcalls import PyTgCalls
-from pytgcalls.types import MediaStream
-from pytgcalls.types.stream import StreamAudioEnded
+from pytgcalls import PyTgCalls, idle
+from pytgcalls.types import Update
+from pytgcalls.types.input_stream import AudioPiped
+from pytgcalls.types.input_stream.quality import HighQualityAudio
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -22,14 +23,14 @@ BOT_TOKEN      = os.environ["BOT_TOKEN"]
 
 DEV = "\n\n🛠 Dev. @emektas"
 
-# ── Clientlər ───────────────────────────────────────────────────────────────
+# ── Clientlər ────────────────────────────────────────────────────────────────
 user = Client("music_user", api_id=API_ID, api_hash=API_HASH, session_string=STRING_SESSION)
 bot  = Client("music_bot",  api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 call = PyTgCalls(user)
 
 # ── Sıra sistemi ─────────────────────────────────────────────────────────────
 queues:  dict[int, deque] = {}
-playing: dict[int, dict]  = {}   # chat_id -> {title, url}
+playing: dict[int, dict]  = {}
 
 def get_queue(chat_id: int) -> deque:
     if chat_id not in queues:
@@ -67,10 +68,10 @@ async def play_next(chat_id: int):
     playing[chat_id] = {"title": title, "url": url}
 
     try:
-        await call.change_stream(chat_id, MediaStream(url))
+        await call.change_stream(chat_id, AudioPiped(url, HighQualityAudio()))
     except Exception:
         try:
-            await call.join_group_call(chat_id, MediaStream(url))
+            await call.join_group_call(chat_id, AudioPiped(url, HighQualityAudio()))
         except Exception as e:
             await bot.send_message(chat_id, f"❌ Hata: {e}" + DEV)
             return
@@ -78,9 +79,8 @@ async def play_next(chat_id: int):
     await bot.send_message(chat_id, f"🎵 Şu an çalınıyor: **{title}**" + DEV)
 
 # ── Şarkı bitince otomatik sonraki ───────────────────────────────────────────
-# pytgcalls 3.x-də on_stream_end decorator dəyişdi
-@call.on_update(filters=StreamAudioEnded)
-async def on_stream_end(client, update):
+@call.on_stream_end()
+async def on_stream_end(client, update: Update):
     await play_next(update.chat_id)
 
 # ── /play ─────────────────────────────────────────────────────────────────────
@@ -113,7 +113,7 @@ async def cmd_play(client, message: Message):
     await msg.edit(f"🎵 Yükleniyor: **{title}**")
 
     try:
-        await call.join_group_call(chat_id, MediaStream(url))
+        await call.join_group_call(chat_id, AudioPiped(url, HighQualityAudio()))
         await msg.edit(f"▶️ Çalınıyor: **{title}**" + DEV)
     except Exception as e:
         playing.pop(chat_id, None)
@@ -200,7 +200,7 @@ async def main():
     await bot.start()
     await call.start()
     print("Müzik botu başladı!")
-    await asyncio.Event().wait()
+    await idle()
 
 if __name__ == "__main__":
     asyncio.run(main())
