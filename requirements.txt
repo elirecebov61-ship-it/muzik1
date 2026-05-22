@@ -1,4 +1,5 @@
 hydrogram
 tgcrypto
-py-tgcalls==1.2.9
+py-tgcalls==2.2.12
+ntgcalls==1.3.0
 yt-dlp
