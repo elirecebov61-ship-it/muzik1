@@ -4,9 +4,7 @@ import logging
 from collections import deque
 
 from pytgcalls import PyTgCalls, idle
-from pytgcalls.types import Update
-from pytgcalls.types.input_stream import AudioPiped
-from pytgcalls.types.input_stream.quality import HighQualityAudio
+from pytgcalls.types import MediaStream
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -68,19 +66,16 @@ async def play_next(chat_id: int):
     playing[chat_id] = {"title": title, "url": url}
 
     try:
-        await call.change_stream(chat_id, AudioPiped(url, HighQualityAudio()))
-    except Exception:
-        try:
-            await call.join_group_call(chat_id, AudioPiped(url, HighQualityAudio()))
-        except Exception as e:
-            await bot.send_message(chat_id, f"❌ Hata: {e}" + DEV)
-            return
+        await call.play(chat_id, MediaStream(url))
+    except Exception as e:
+        await bot.send_message(chat_id, f"❌ Hata: {e}" + DEV)
+        return
 
     await bot.send_message(chat_id, f"🎵 Şu an çalınıyor: **{title}**" + DEV)
 
 # ── Şarkı bitince otomatik sonraki ───────────────────────────────────────────
 @call.on_stream_end()
-async def on_stream_end(client, update: Update):
+async def on_stream_end(client, update):
     await play_next(update.chat_id)
 
 # ── /play ─────────────────────────────────────────────────────────────────────
@@ -113,7 +108,7 @@ async def cmd_play(client, message: Message):
     await msg.edit(f"🎵 Yükleniyor: **{title}**")
 
     try:
-        await call.join_group_call(chat_id, AudioPiped(url, HighQualityAudio()))
+        await call.play(chat_id, MediaStream(url))
         await msg.edit(f"▶️ Çalınıyor: **{title}**" + DEV)
     except Exception as e:
         playing.pop(chat_id, None)
@@ -146,7 +141,7 @@ async def cmd_stop(client, message: Message):
 async def cmd_pause(client, message: Message):
     chat_id = message.chat.id
     try:
-        await call.pause_stream(chat_id)
+        await call.pause(chat_id)
         await message.reply("⏸ Duraklatıldı." + DEV)
     except Exception as e:
         await message.reply(f"❌ Hata: {e}" + DEV)
@@ -156,7 +151,7 @@ async def cmd_pause(client, message: Message):
 async def cmd_resume(client, message: Message):
     chat_id = message.chat.id
     try:
-        await call.resume_stream(chat_id)
+        await call.resume(chat_id)
         await message.reply("▶️ Devam ettirildi." + DEV)
     except Exception as e:
         await message.reply(f"❌ Hata: {e}" + DEV)
@@ -198,7 +193,7 @@ async def cmd_help(client, message: Message):
 async def main():
     await user.start()
     await bot.start()
-    await call.start()
+    call.start()
     print("Müzik botu başladı!")
     await idle()
 
