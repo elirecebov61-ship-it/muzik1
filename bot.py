@@ -5,7 +5,7 @@ from collections import deque
 
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
-from pytgcalls.exceptions import NoActiveGroupCall
+from pytgcalls.types.stream import StreamAudioEnded
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -22,21 +22,21 @@ BOT_TOKEN      = os.environ["BOT_TOKEN"]
 
 DEV = "\n\n🛠 Dev. @emektas"
 
-# ── Clientlər ─────────────────────────────────────────────────────────────
+# ── Clientlər ───────────────────────────────────────────────────────────────
 user = Client("music_user", api_id=API_ID, api_hash=API_HASH, session_string=STRING_SESSION)
 bot  = Client("music_bot",  api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 call = PyTgCalls(user)
 
-# ── Sıra sistemi ──────────────────────────────────────────────────────────
+# ── Sıra sistemi ─────────────────────────────────────────────────────────────
 queues:  dict[int, deque] = {}
-playing: dict[int, dict]  = {}  # chat_id -> {title, url}
+playing: dict[int, dict]  = {}   # chat_id -> {title, url}
 
 def get_queue(chat_id: int) -> deque:
     if chat_id not in queues:
         queues[chat_id] = deque()
     return queues[chat_id]
 
-# ── YouTube audio URL al ──────────────────────────────────────────────────
+# ── YouTube audio URL al ─────────────────────────────────────────────────────
 def fetch_audio(query: str) -> tuple[str, str]:
     ydl_opts = {
         "format": "bestaudio/best",
@@ -51,7 +51,7 @@ def fetch_audio(query: str) -> tuple[str, str]:
             info = info["entries"][0]
         return info["title"], info["url"]
 
-# ── Növbədən növbəti çal ──────────────────────────────────────────────────
+# ── Növbədən növbəti çal ─────────────────────────────────────────────────────
 async def play_next(chat_id: int):
     q = get_queue(chat_id)
     if not q:
@@ -77,12 +77,13 @@ async def play_next(chat_id: int):
 
     await bot.send_message(chat_id, f"🎵 Şu an çalınıyor: **{title}**" + DEV)
 
-# ── Şarkı bitince otomatik sonraki ────────────────────────────────────────
-@call.on_stream_end()
-async def on_stream_end(_, update):
+# ── Şarkı bitince otomatik sonraki ───────────────────────────────────────────
+# pytgcalls 3.x-də on_stream_end decorator dəyişdi
+@call.on_update(filters=StreamAudioEnded)
+async def on_stream_end(client, update):
     await play_next(update.chat_id)
 
-# ── /play ─────────────────────────────────────────────────────────────────
+# ── /play ─────────────────────────────────────────────────────────────────────
 @bot.on_message(filters.command("play") & filters.group)
 async def cmd_play(client, message: Message):
     chat_id = message.chat.id
@@ -95,7 +96,7 @@ async def cmd_play(client, message: Message):
     msg   = await message.reply("🔍 Aranıyor...")
 
     try:
-        loop  = asyncio.get_event_loop()
+        loop       = asyncio.get_event_loop()
         title, url = await loop.run_in_executor(None, fetch_audio, query)
     except Exception as e:
         await msg.edit(f"❌ Bulunamadı: {e}" + DEV)
@@ -118,7 +119,7 @@ async def cmd_play(client, message: Message):
         playing.pop(chat_id, None)
         await msg.edit(f"❌ Hata: {e}" + DEV)
 
-# ── /skip ─────────────────────────────────────────────────────────────────
+# ── /skip ─────────────────────────────────────────────────────────────────────
 @bot.on_message(filters.command("skip") & filters.group)
 async def cmd_skip(client, message: Message):
     chat_id = message.chat.id
@@ -128,7 +129,7 @@ async def cmd_skip(client, message: Message):
     await message.reply("⏭ Geçildi." + DEV)
     await play_next(chat_id)
 
-# ── /stop ─────────────────────────────────────────────────────────────────
+# ── /stop ─────────────────────────────────────────────────────────────────────
 @bot.on_message(filters.command("stop") & filters.group)
 async def cmd_stop(client, message: Message):
     chat_id = message.chat.id
@@ -140,7 +141,7 @@ async def cmd_stop(client, message: Message):
         pass
     await message.reply("⏹ Durduruldu, sıra temizlendi." + DEV)
 
-# ── /pause ────────────────────────────────────────────────────────────────
+# ── /pause ────────────────────────────────────────────────────────────────────
 @bot.on_message(filters.command("pause") & filters.group)
 async def cmd_pause(client, message: Message):
     chat_id = message.chat.id
@@ -150,7 +151,7 @@ async def cmd_pause(client, message: Message):
     except Exception as e:
         await message.reply(f"❌ Hata: {e}" + DEV)
 
-# ── /resume ───────────────────────────────────────────────────────────────
+# ── /resume ───────────────────────────────────────────────────────────────────
 @bot.on_message(filters.command("resume") & filters.group)
 async def cmd_resume(client, message: Message):
     chat_id = message.chat.id
@@ -160,7 +161,7 @@ async def cmd_resume(client, message: Message):
     except Exception as e:
         await message.reply(f"❌ Hata: {e}" + DEV)
 
-# ── /queue ────────────────────────────────────────────────────────────────
+# ── /queue ────────────────────────────────────────────────────────────────────
 @bot.on_message(filters.command("queue") & filters.group)
 async def cmd_queue(client, message: Message):
     chat_id = message.chat.id
@@ -180,7 +181,7 @@ async def cmd_queue(client, message: Message):
             text += f"{i}. {title}\n"
     await message.reply(text + DEV)
 
-# ── /help ─────────────────────────────────────────────────────────────────
+# ── /help ─────────────────────────────────────────────────────────────────────
 @bot.on_message(filters.command(["help", "start"]))
 async def cmd_help(client, message: Message):
     await message.reply(
@@ -193,7 +194,7 @@ async def cmd_help(client, message: Message):
         "📋 `/queue` — Sırayı göster\n" + DEV
     )
 
-# ── Başlat ────────────────────────────────────────────────────────────────
+# ── Başlat ────────────────────────────────────────────────────────────────────
 async def main():
     await user.start()
     await bot.start()
