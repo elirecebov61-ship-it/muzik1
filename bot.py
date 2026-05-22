@@ -4,7 +4,7 @@ import logging
 from collections import deque
 
 from pytgcalls import PyTgCalls, idle
-from pytgcalls.types import MediaStream
+from pytgcalls.types import MediaStream, StreamEnded
 
 from hydrogram import Client, filters
 from hydrogram.types import Message
@@ -21,12 +21,10 @@ BOT_TOKEN      = os.environ["BOT_TOKEN"]
 
 DEV = "\n\n🛠 Dev. @emektas"
 
-# ── Clientlər ────────────────────────────────────────────────────────────────
 user = Client("music_user", api_id=API_ID, api_hash=API_HASH, session_string=STRING_SESSION)
 bot  = Client("music_bot",  api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 call = PyTgCalls(user)
 
-# ── Sıra sistemi ─────────────────────────────────────────────────────────────
 queues:  dict[int, deque] = {}
 playing: dict[int, dict]  = {}
 
@@ -35,7 +33,6 @@ def get_queue(chat_id: int) -> deque:
         queues[chat_id] = deque()
     return queues[chat_id]
 
-# ── YouTube audio URL al ─────────────────────────────────────────────────────
 def fetch_audio(query: str) -> tuple[str, str]:
     ydl_opts = {
         "format": "bestaudio/best",
@@ -50,7 +47,6 @@ def fetch_audio(query: str) -> tuple[str, str]:
             info = info["entries"][0]
         return info["title"], info["url"]
 
-# ── Növbədən növbəti çal ─────────────────────────────────────────────────────
 async def play_next(chat_id: int):
     q = get_queue(chat_id)
     if not q:
@@ -73,12 +69,10 @@ async def play_next(chat_id: int):
 
     await bot.send_message(chat_id, f"🎵 Şu an çalınıyor: **{title}**" + DEV)
 
-# ── Şarkı bitince otomatik sonraki ───────────────────────────────────────────
-@call.on_stream_end()
-async def on_stream_end(client, update):
+@call.on_update(filters.stream_ended)
+async def on_stream_end(client, update: StreamEnded):
     await play_next(update.chat_id)
 
-# ── /play ─────────────────────────────────────────────────────────────────────
 @bot.on_message(filters.command("play") & filters.group)
 async def cmd_play(client, message: Message):
     chat_id = message.chat.id
@@ -114,7 +108,6 @@ async def cmd_play(client, message: Message):
         playing.pop(chat_id, None)
         await msg.edit(f"❌ Hata: {e}" + DEV)
 
-# ── /skip ─────────────────────────────────────────────────────────────────────
 @bot.on_message(filters.command("skip") & filters.group)
 async def cmd_skip(client, message: Message):
     chat_id = message.chat.id
@@ -124,7 +117,6 @@ async def cmd_skip(client, message: Message):
     await message.reply("⏭ Geçildi." + DEV)
     await play_next(chat_id)
 
-# ── /stop ─────────────────────────────────────────────────────────────────────
 @bot.on_message(filters.command("stop") & filters.group)
 async def cmd_stop(client, message: Message):
     chat_id = message.chat.id
@@ -136,7 +128,6 @@ async def cmd_stop(client, message: Message):
         pass
     await message.reply("⏹ Durduruldu, sıra temizlendi." + DEV)
 
-# ── /pause ────────────────────────────────────────────────────────────────────
 @bot.on_message(filters.command("pause") & filters.group)
 async def cmd_pause(client, message: Message):
     chat_id = message.chat.id
@@ -146,7 +137,6 @@ async def cmd_pause(client, message: Message):
     except Exception as e:
         await message.reply(f"❌ Hata: {e}" + DEV)
 
-# ── /resume ───────────────────────────────────────────────────────────────────
 @bot.on_message(filters.command("resume") & filters.group)
 async def cmd_resume(client, message: Message):
     chat_id = message.chat.id
@@ -156,7 +146,6 @@ async def cmd_resume(client, message: Message):
     except Exception as e:
         await message.reply(f"❌ Hata: {e}" + DEV)
 
-# ── /queue ────────────────────────────────────────────────────────────────────
 @bot.on_message(filters.command("queue") & filters.group)
 async def cmd_queue(client, message: Message):
     chat_id = message.chat.id
@@ -176,7 +165,6 @@ async def cmd_queue(client, message: Message):
             text += f"{i}. {title}\n"
     await message.reply(text + DEV)
 
-# ── /help ─────────────────────────────────────────────────────────────────────
 @bot.on_message(filters.command(["help", "start"]))
 async def cmd_help(client, message: Message):
     await message.reply(
@@ -189,11 +177,10 @@ async def cmd_help(client, message: Message):
         "📋 `/queue` — Sırayı göster\n" + DEV
     )
 
-# ── Başlat ────────────────────────────────────────────────────────────────────
 async def main():
     await user.start()
     await bot.start()
-    call.start()
+    await call.start()
     print("Müzik botu başladı!")
     await idle()
 
