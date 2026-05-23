@@ -1,7 +1,6 @@
 import logging
 import os
 import time
-import asyncio
 from collections import defaultdict
 from contextlib import contextmanager
 from psycopg2 import pool
@@ -237,6 +236,7 @@ async def cmd_unmute(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 @ensure_group
 async def cmd_ayar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    global FLOOD_LIMIT, FLOOD_SECONDS
     msg = update.message
     uid = update.effective_user.id
     cid = str(update.effective_chat.id)
@@ -254,7 +254,6 @@ async def cmd_ayar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
     try:
-        global FLOOD_LIMIT, FLOOD_SECONDS
         FLOOD_LIMIT   = int(ctx.args[0])
         FLOOD_SECONDS = int(ctx.args[1]) if len(ctx.args) > 1 else FLOOD_SECONDS
         await msg.reply_text(
