@@ -3,42 +3,50 @@ import asyncio
 import random
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from telegram.error import RetryAfter
+from telegram.error import RetryAfter, TimedOut
 
 TOKEN = os.environ["BOT_TOKEN"]
 
 VIDEOS = [
-    "BAACAgIAAyEFAATiigGuAAICeGoTDAdJ2vFS1KKZiTgZTgtYIw-7AAIXmgAC2gKYSE_QVOHqeyrYOwQ",
-    "BAACAgIAAyEFAATiigGuAAICeWoTDAfWwjVEz5osBfUgdhEmv1gGAAIYmgAC2gKYSB7epngzz5DrOwQ",
-    "BAACAgIAAyEFAATiigGuAAICemoTDAeAmEp_XwOpFYmAJ8F5_MevAAIZmgAC2gKYSJHrzaSElA3SOwQ",
-    "BAACAgIAAyEFAATiigGuAAICe2oTDAfF05ZpyqqSD3azz8hOORavAAIamgAC2gKYSELbVE0H4c3WOwQ",
-    "BAACAgIAAyEFAATiigGuAAICfGoTDAfydB4AAaNuqbySu4gGwgRH3QACG5oAAtoCmEh3cpvucfyqNzsE",
-    "BAACAgIAAyEFAATiigGuAAICfWoTDAcqhgwzhHBzHRAEAR75tcuZAAIcmgAC2gKYSDRdu_BDawfkOwQ",
-    "BAACAgIAAyEFAATiigGuAAICfmoTDAdAz4er2e9Vzf4Wy3yu33XUAAIdmgAC2gKYSB2Ha-2TEmbGOwQ",
-    "BAACAgIAAyEFAATiigGuAAICf2oTDAcJH0hEjRp2-HrEE70dG8zbAAIemgAC2gKYSBbm0FKdcQ4uOwQ",
-    "BAACAgIAAyEFAATiigGuAAICgGoTDAdX9zwfR-b5D3HN-4EEj9J1AAIfmgAC2gKYSMwVZmXw56s-OwQ"
+    "file_id_1", "file_id_2", "file_id_3",
+    "file_id_4", "file_id_5", "file_id_6",
+    "file_id_7", "file_id_8", "file_id_9"
 ]
 
 tasks = {}
 
 async def spam(app, chat_id):
+    delay = 0.5  # stabil start
+
     while True:
         try:
-            batch = random.sample(VIDEOS, len(VIDEOS))
+            random.shuffle(VIDEOS)
 
-            for video in batch:
+            for v in VIDEOS:
                 try:
-                    await app.bot.send_video(chat_id=chat_id, video=video)
-                    await asyncio.sleep(0.5)  # stabil axın
+                    await app.bot.send_video(chat_id=chat_id, video=v)
+                    await asyncio.sleep(delay)
 
                 except RetryAfter as e:
                     await asyncio.sleep(e.retry_after)
 
+                    # avtomatik yavaşıma
+                    delay = min(delay + 0.1, 1.5)
+
+                except TimedOut:
+                    await asyncio.sleep(1)
+
+                    delay = min(delay + 0.1, 1.5)
+
+            # stabilizasiya (yenidən sürətləndir)
+            delay = max(delay - 0.05, 0.4)
+
         except Exception as e:
             print(e)
+            await asyncio.sleep(1)
 
 
-async def sik(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
     if chat_id not in tasks:
@@ -47,7 +55,7 @@ async def sik(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def dur(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
     if chat_id in tasks:
@@ -57,7 +65,7 @@ async def dur(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 app = Application.builder().token(TOKEN).build()
 
-app.add_handler(CommandHandler("sik", sik))
-app.add_handler(CommandHandler("dur", dur))
+app.add_handler(CommandHandler("sik", start))
+app.add_handler(CommandHandler("dur", stop))
 
 app.run_polling()
