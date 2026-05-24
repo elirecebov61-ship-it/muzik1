@@ -26,15 +26,13 @@ async def spam(app, chat_id):
         try:
             batch = random.sample(VIDEOS, len(VIDEOS))
 
-            send_tasks = [
-                app.bot.send_video(chat_id=chat_id, video=v)
-                for v in batch
-            ]
+            for video in batch:
+                try:
+                    await app.bot.send_video(chat_id=chat_id, video=video)
+                    await asyncio.sleep(0.1)  # stabil axın
 
-            await asyncio.gather(*send_tasks)
-
-        except RetryAfter as e:
-            await asyncio.sleep(e.retry_after)
+                except RetryAfter as e:
+                    await asyncio.sleep(e.retry_after)
 
         except Exception as e:
             print(e)
