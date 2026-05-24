@@ -31,8 +31,8 @@ MEDIA = [
 
 TASKS = {}
 
-async def spam(app, chat_id):
-    delay = 0.4
+async def worker(app, chat_id):
+    delay = 0.7  # ⚡ FAST MODE (~85/min)
 
     while True:
         try:
@@ -48,16 +48,17 @@ async def spam(app, chat_id):
                     await asyncio.sleep(delay)
 
                 except RetryAfter as e:
-                    wait = max(30, e.retry_after)
-                    print(f"Cooldown {wait}s")
+                    wait = max(20, e.retry_after)
+                    print(f"LIMIT: sleeping {wait}s")
                     await asyncio.sleep(wait)
-                    delay = min(delay + 0.2, 2.0)
+                    delay = min(delay + 0.3, 2.5)
 
                 except TimedOut:
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(3)
                     delay = min(delay + 0.2, 2.0)
 
-            delay = max(delay - 0.05, 0.35)
+            # gradually faster but safe
+            delay = max(delay - 0.02, 0.6)
 
         except Exception as e:
             print("ERROR:", e)
@@ -68,10 +69,8 @@ async def sik(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
     if chat_id not in TASKS:
-        TASKS[chat_id] = asyncio.create_task(
-            spam(context.application, chat_id)
-        )
-        await update.message.reply_text("STARTED")
+        TASKS[chat_id] = asyncio.create_task(worker(context.application, chat_id))
+        await update.message.reply_text("FAST MODE STARTED")
 
 
 async def dur(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -84,9 +83,8 @@ async def dur(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 app = Application.builder().token(TOKEN).build()
-
 app.add_handler(CommandHandler("sik", sik))
 app.add_handler(CommandHandler("dur", dur))
 
-print("BOT RUNNING...")
+print("BOT RUNNING")
 app.run_polling()
