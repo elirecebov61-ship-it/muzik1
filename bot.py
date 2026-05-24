@@ -29,7 +29,7 @@ async def spam(app, chat_id):
             for video in batch:
                 try:
                     await app.bot.send_video(chat_id=chat_id, video=video)
-                    await asyncio.sleep(0.1)  # stabil axın
+                    await asyncio.sleep(0.5)  # stabil axın
 
                 except RetryAfter as e:
                     await asyncio.sleep(e.retry_after)
