@@ -24,24 +24,21 @@ bot = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 # 2. Senin Hesabını (Userbotu) Başlatıyoruz
 userbot = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
-print(f"[+] Sessiz ve süratli mod aktif. Komut bekleniyor...")
+print(f"[+] Ultra süratli mod (2s) aktif. Komut bekleniyor...")
 
 # --- ÖZEL SOHBETTE /START KONTROLÜ (TÜRKÇE) ---
 @bot.on(events.NewMessage(pattern='/start', incoming=True))
 async def check_status(event):
-    # Eğer /start yazan kişi sen değilsen veya mesaj gruptan geldiyse cevap verme
     if event.sender_id != OWNER_ID or not event.is_private:
         return
     await event.respond("🟢 Bot aktif ve emirlerinizi bekliyor, sahibim!")
 
-# --- GRUPTA SESSİZ ADAM EKLEME HİSSESİ ---
+# --- GRUPTA SESSİZ ADAM EKLEME BÖLÜMÜ ---
 @bot.on(events.NewMessage(pattern='/c31k'))
 async def start_adding(event):
-    # KESİN GÜVENLİK KONTROLÜ: Sadece senin ID'n grubu tetikleyebilir
     if event.sender_id != OWNER_ID:
         return
 
-    # Qrupda heç bir mesaj yazılmır, proses birbaşa arxa planda başlayır
     try:
         source = await userbot.get_entity(SOURCE_GROUP)
         target = await userbot.get_entity(TARGET_GROUP)
@@ -57,12 +54,14 @@ async def start_adding(event):
             if isinstance(user.status, (UserStatusOnline, UserStatusRecently, UserStatusLastWeek)):
                 participants.append(user)
 
-    # Ekleme döngüsü (Tamamen sessiz)
+    # Ekleme döngüsü (2 saniye fasile ile ultra süratli)
     for user in participants:
         try:
             await userbot(InviteToChannelRequest(target, [user]))
             print(f"[+] Eklendi: {user.username}")
-            await asyncio.sleep(5) # 5 saniyelik hızlı geçiş
+            
+            # Gözleme müddəti 2 saniyəyə endirildi
+            await asyncio.sleep(2) 
             
         except PeerFloodError:
             print("[-] Telegram sınırına takıldı (FloodWait). İşlem durduruldu.")
@@ -73,7 +72,7 @@ async def start_adding(event):
             continue
         except Exception as e:
             print(f"[-] Hata: {e}")
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
 
 async def main():
     await userbot.start()
@@ -81,5 +80,5 @@ async def main():
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
-    loop.run_complete(main())
+    loop.run_until_complete(main())
 
