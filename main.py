@@ -26,12 +26,21 @@ userbot = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 print(f"[+] Çiftli sistem aktif! Mavi bot sadece {OWNER_ID} ID'li sahibinden komut bekliyor...")
 
-# Komutu MAVİ BOT dinliyor
+# --- YENİƏNƏN HİSSƏ: ŞƏXSİ ÇATDA BOTUN İŞLƏMƏSİNİ YOXLAMAQ ---
+@bot.on(events.NewMessage(pattern='/start', incoming=True))
+async def check_status(event):
+    # Eğer /start yazan kişi sen değilsen, bot cevap vermez
+    if event.sender_id != OWNER_ID:
+        return
+    
+    # Sadece sana özel cevap
+    await event.respond("🟢 Bot aktivdir və əmrinizi gözləyir, sahibim!")
+
+# --- QRUPDA ADAM ƏLAVƏ ETMƏ HİSSƏSİ ---
 @bot.on(events.NewMessage(pattern='/c31k'))
 async def start_adding(event):
     # KESİN GÜVENLİK KONTROLÜ: Komutu yazan kişinin ID'si senin ID'ne eşit mi?
     if event.sender_id != OWNER_ID:
-        # Komutu yazan sen değilsen bot hiçbir şey yapmaz, görmezden gelir.
         return
 
     await event.respond("🚀 [BOT] Giriş doğrulandı. Gerçek ve aktif insanları ekleme işlemi senin hesabın üzerinden başlatıldı...")
@@ -83,3 +92,4 @@ async def main():
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main())
+
