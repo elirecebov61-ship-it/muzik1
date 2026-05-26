@@ -24,14 +24,14 @@ bot = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 # 2. Senin Hesabını (Userbotu) Başlatıyoruz
 userbot = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
-print(f"[+] Ultra süratli mod (2s) aktif. Komut bekleniyor...")
+print(f"[+] Maksimum Güc Rejimi (12s + Avtomatik Skip) aktivdir. Əmr gözlənilir...")
 
-# --- ÖZEL SOHBETTE /START KONTROLÜ (TÜRKÇE) ---
+# --- ÖZEL SOHBETTE /START KONTROLÜ ---
 @bot.on(events.NewMessage(pattern='/start', incoming=True))
 async def check_status(event):
     if event.sender_id != OWNER_ID or not event.is_private:
         return
-    await event.respond("🟢 Bot aktif ve emirlerinizi bekliyor, sahibim!")
+    await event.respond("🟢 Bot aktif və əmrlərinizi gözləyir!")
 
 # --- GRUPTA SESSİZ ADAM EKLEME BÖLÜMÜ ---
 @bot.on(events.NewMessage(pattern='/c31k'))
@@ -43,36 +43,57 @@ async def start_adding(event):
         source = await userbot.get_entity(SOURCE_GROUP)
         target = await userbot.get_entity(TARGET_GROUP)
     except Exception as e:
-        print(f"[-] Gruplar bulunamadı: {e}")
+        print(f"[-] Qruplar tapılmadı: {e}")
         return
 
-    participants = []
+    print("[*] Sənin qrupunun mövcud üzvləri yoxlanılır...")
     
-    # Üyeleri çekiyoruz
+    # Sənin qrupundakı mövcud adamların ID-lərini yadda saxlayırıq (Skip etmək üçün)
+    existing_users = set()
+    async for user in userbot.iter_participants(target):
+        existing_users.add(user.id)
+
+    print(f"[+] Sənin qrupunda artıq {len(existing_users)} nəfər var. Dubllar avtomatik skip ediləcək.")
+    print("[*] Hədəf qrupdan aktiv insanlar çəkilir...")
+
+    participants = []
+    # Hədəf qrupun üzvlərini çəkirik
     async for user in userbot.iter_participants(source):
         if not user.bot and user.username:
+            # Əgər adam artıq sənin qrupunda VARSA, siyahıya əlavə etmirik (SKIP)
+            if user.id in existing_users:
+                continue
+            
+            # Yalnız son vaxtlar aktiv olan insanları seçirik
             if isinstance(user.status, (UserStatusOnline, UserStatusRecently, UserStatusLastWeek)):
                 participants.append(user)
 
-    # Ekleme döngüsü (2 saniye fasile ile ultra süratli)
+    print(f"[+] Əlavə edilə biləcek {len(participants)} yeni şəxs tapıldı. Proses başlayır...")
+
+    added_count = 0  # Əlavə olunan adamları saymaq üçün
+
+    # Ekleme döngüsü
     for user in participants:
         try:
             await userbot(InviteToChannelRequest(target, [user]))
-            print(f"[+] Eklendi: {user.username}")
+            added_count += 1
+            print(f"[{added_count}] Əlavə edildi: {user.username}")
             
-            # Gözleme müddəti 2 saniyəyə endirildi
-            await asyncio.sleep(2) 
+            # 12 saniyəlik təhlükəsiz interval
+            await asyncio.sleep(12) 
             
         except PeerFloodError:
-            print("[-] Telegram sınırına takıldı (FloodWait). İşlem durduruldu.")
+            print(f"[-] Telegram limitinə takıldı (FloodWait). Bu hesab üçün işlem durduruldu. Toplam {added_count} nəfər əlavə edildi.")
             break
         except UserPrivacyRestrictedError:
             continue
         except UserAlreadyParticipantError:
             continue
         except Exception as e:
-            print(f"[-] Hata: {e}")
-            await asyncio.sleep(1)
+            print(f"[-] Xəta: {e}")
+            await asyncio.sleep(2)
+
+    print(f"[🏁] Döngü dayandı. Bu hesab cəmi {added_count} nəfər əlavə edə bildi.")
 
 async def main():
     await userbot.start()
