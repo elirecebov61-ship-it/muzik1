@@ -9,60 +9,77 @@ from telethon.errors.rpcerrorlist import PeerFloodError, UserPrivacyRestrictedEr
 # Railway panelinden çekilecek değişkenler
 API_ID = int(os.getenv("API_ID", 1234567))
 API_HASH = os.getenv("API_HASH", "varsayilan_hash")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "bura_bot_token")
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 
 SOURCE_GROUP = os.getenv("SOURCE_GROUP", "cekilecek_grup_username")
 TARGET_GROUP = os.getenv("TARGET_GROUP", "eklenecek_grup_username")
 
-# Fayl yerinə StringSession istifadə edirik
-client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+# Sadece senin kullanabilmen için sabit Telegram ID'n
+OWNER_ID = 8034872992
 
-print("[+] Userbot StringSession ile aktif edildi. Grupta /c31k komutu bekleniyor...")
+# 1. Mavi Botu Başlatıyoruz
+bot = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
-@client.on(events.NewMessage(pattern='/c31k'))
+# 2. Senin Hesabını (Userbotu) Başlatıyoruz
+userbot = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+
+print(f"[+] Çiftli sistem aktif! Mavi bot sadece {OWNER_ID} ID'li sahibinden komut bekliyor...")
+
+# Komutu MAVİ BOT dinliyor
+@bot.on(events.NewMessage(pattern='/c31k'))
 async def start_adding(event):
-    if not event.is_private and event.sender_id == (await client.get_me()).id:
-        await event.respond("🚀 Gerçek ve aktif insanları ayıklama ve ekleme işlemi başlatıldı...")
-        
+    # KESİN GÜVENLİK KONTROLÜ: Komutu yazan kişinin ID'si senin ID'ne eşit mi?
+    if event.sender_id != OWNER_ID:
+        # Komutu yazan sen değilsen bot hiçbir şey yapmaz, görmezden gelir.
+        return
+
+    await event.respond("🚀 [BOT] Giriş doğrulandı. Gerçek ve aktif insanları ekleme işlemi senin hesabın üzerinden başlatıldı...")
+    
+    try:
+        source = await userbot.get_entity(SOURCE_GROUP)
+        target = await userbot.get_entity(TARGET_GROUP)
+    except Exception as e:
+        await event.respond(f"❌ Gruplar bulunamadı. Hata: {e}")
+        return
+
+    participants = []
+    
+    # Senin hesabınla hedef gruptaki üyeleri çekiyoruz
+    async for user in userbot.iter_participants(source):
+        if not user.bot and user.username:
+            if isinstance(user.status, (UserStatusOnline, UserStatusRecently, UserStatusLastWeek)):
+                participants.append(user)
+
+    await event.respond(f"📊 [BOT] {len(participants)} tane GERÇEK insan tespit edildi. Senin hesabınla ekleme başlıyor...")
+
+    added_count = 0
+    for user in participants:
         try:
-            source = await client.get_entity(SOURCE_GROUP)
-            target = await client.get_entity(TARGET_GROUP)
+            # Ekleme işlemini senin hesabın (userbot) tetikliyor
+            await userbot(InviteToChannelRequest(target, [user]))
+            added_count += 1
+            print(f"[+] Eklendi: {user.username}")
+            await asyncio.sleep(15) # Ban yememe süresi
+            
+        except PeerFloodError:
+            await event.respond(f"⚠️ Telegram sınırı doldu. Bugünlük bu kadar. Toplam {added_count} kişi eklendi.")
+            break
+        except UserPrivacyRestrictedError:
+            continue
+        except UserAlreadyParticipantError:
+            continue
         except Exception as e:
-            await event.respond(f"❌ Gruplar bulunamadı, lütfen linkleri kontrol edin. Hata: {e}")
-            return
+            print(f"[-] Hata: {e}")
+            await asyncio.sleep(2)
+    
+    await event.respond(f"🏁 [BOT] İşlem bitti! Toplam {added_count} kişi gruba katıldı.")
 
-        participants = []
-        
-        async range in [1]: # Blok daxili axışı qorumaq üçün
-            async for user in client.iter_participants(source):
-                if not user.bot and user.username:
-                    if isinstance(user.status, (UserStatusOnline, UserStatusRecently, UserStatusLastWeek)):
-                        participants.append(user)
-
-        await event.respond(f"📊 Hedef gruptan {len(participants)} tane **GERÇEK VE AKTİF** kullanıcı tespit edildi. Ekleme başlıyor...")
-
-        added_count = 0
-        for user in participants:
-            try:
-                await client(InviteToChannelRequest(target, [user]))
-                added_count += 1
-                print(f"[+] Gerçek kullanıcı eklendi: {user.username} (Toplam: {added_count})")
-                await asyncio.sleep(15)
-                
-            except PeerFloodError:
-                await event.respond(f"⚠️ Telegram sınırı doldu (Flood Error). Bugünlük bu kadar. Toplam {added_count} gerçek kişi eklendi.")
-                break
-            except UserPrivacyRestrictedError:
-                continue
-            except UserAlreadyParticipantError:
-                continue
-            except Exception as e:
-                print(f"[-] Hata oluştu ({user.username}): {e}")
-                await asyncio.sleep(2)
-        
-        await event.respond(f"🏁 İşlem tamamlandı. Toplam {added_count} gerçek insan gruba katıldı.")
+# Her iki bota da start verip sistemi açık tutuyoruz
+async def main():
+    await userbot.start()
+    await bot.run_until_disconnected()
 
 if __name__ == "__main__":
-    client.start()
-    client.run_until_disconnected()
-
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
