@@ -1,105 +1,346 @@
+import logging
 import os
 import asyncio
-from telethon import TelegramClient, events
-from telethon.sessions import StringSession
-from telethon.tl.functions.channels import InviteToChannelRequest
-from telethon.tl.types import UserStatusOnline, UserStatusRecently, UserStatusLastWeek
-from telethon.errors.rpcerrorlist import PeerFloodError, UserPrivacyRestrictedError, UserAlreadyParticipantError
+import time
+from contextlib import contextmanager
+from psycopg2 import pool
+from pyrogram import Client
+from telegram import Update, BotCommand
+from telegram.ext import (
+    Application, CommandHandler,
+    ContextTypes
+)
 
-# Railway panelinden çekilecek değişkenler
-API_ID = int(os.getenv("API_ID", 1234567))
-API_HASH = os.getenv("API_HASH", "varsayilan_hash")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "bura_bot_token")
-SESSION_STRING = os.getenv("SESSION_STRING", "")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-SOURCE_GROUP = os.getenv("SOURCE_GROUP", "cekilecek_grup_username")
-TARGET_GROUP = os.getenv("TARGET_GROUP", "eklenecek_grup_username")
+TOKEN          = os.environ["BOT_TOKEN"]
+API_ID         = int(os.environ["API_ID"])
+API_HASH       = os.environ["API_HASH"]
+SESSION_STRING = os.environ["STRING_SESSION"]
+FOUNDER_ID     = 8034872992
+DATABASE_URL   = os.environ.get("DATABASE_URL")
 
-# Sadece senin kullanabilmen için sabit Telegram ID'n
-OWNER_ID = 8034872992
+DEV = "\n\n🛠 Dev. @emektas"
 
-# 1. Mavi Botu Başlatıyoruz
-bot = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+GROUP_IDS = [
+    -1003800695214,
+    -1003751175874,
+    -1003890872488,
+]
 
-# 2. Senin Hesabını (Userbotu) Başlatıyoruz
-userbot = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+pro_users:      dict[int, str] = {}
+pro_delegators: dict[int, str] = {}
 
-print(f"[+] Maksimum Güc Rejimi (12s + Avtomatik Skip) aktivdir. Əmr gözlənilir...")
+db_pool = None
 
-# --- ÖZEL SOHBETTE /START KONTROLÜ ---
-@bot.on(events.NewMessage(pattern='/start', incoming=True))
-async def check_status(event):
-    if event.sender_id != OWNER_ID or not event.is_private:
-        return
-    await event.respond("🟢 Bot aktif və əmrlərinizi gözləyir!")
+def get_pool():
+    global db_pool
+    if db_pool is None:
+        for attempt in range(10):
+            try:
+                db_pool = pool.ThreadedConnectionPool(2, 10, DATABASE_URL)
+                return db_pool
+            except Exception as e:
+                print(f"Pool hatası ({attempt+1}/10): {e}")
+                time.sleep(3)
+        raise Exception("DB pool oluşturulamadı!")
+    return db_pool
 
-# --- GRUPTA SESSİZ ADAM EKLEME BÖLÜMÜ ---
-@bot.on(events.NewMessage(pattern='/c31k'))
-async def start_adding(event):
-    if event.sender_id != OWNER_ID:
-        return
-
+@contextmanager
+def get_conn():
+    p = get_pool()
+    conn = p.getconn()
     try:
-        source = await userbot.get_entity(SOURCE_GROUP)
-        target = await userbot.get_entity(TARGET_GROUP)
-    except Exception as e:
-        print(f"[-] Qruplar tapılmadı: {e}")
+        conn.autocommit = False
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        p.putconn(conn)
+
+def init_db():
+    if not DATABASE_URL:
+        return
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS pro_users (
+                    user_id TEXT PRIMARY KEY,
+                    name    TEXT DEFAULT ''
+                );
+                CREATE TABLE IF NOT EXISTS pro_delegators (
+                    user_id TEXT PRIMARY KEY,
+                    name    TEXT DEFAULT ''
+                );
+            """)
+
+def load_pro_users():
+    if not DATABASE_URL:
+        return
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id, name FROM pro_users")
+            for r in cur.fetchall():
+                pro_users[int(r[0])] = r[1] or ""
+
+            cur.execute("SELECT user_id, name FROM pro_delegators")
+            for r in cur.fetchall():
+                pro_delegators[int(r[0])] = r[1] or ""
+
+    print(f"Pro kullanıcılar yüklendi: {len(pro_users)} kişi")
+    print(f"Pro yetkilendiriciler yüklendi: {len(pro_delegators)} kişi")
+
+def is_authorized(user_id: int) -> bool:
+    return user_id == FOUNDER_ID or user_id in pro_users
+
+def can_give_pro(user_id: int) -> bool:
+    return user_id == FOUNDER_ID or user_id in pro_delegators
+
+pyro = Client(
+    "post_guard",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    session_string=SESSION_STRING
+)
+
+def ensure_group(func):
+    async def wrapper(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        if update.effective_chat.type == "private":
+            await update.message.reply_text("🚫 Bu komut sadece gruplarda çalışır!" + DEV)
+            return
+        return await func(update, ctx)
+    return wrapper
+
+async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "👋 Merhaba!\n\n"
+        "🗑 Ben bir *post silici botuyum*.\n\n"
+        "📌 Komutlar:\n"
+        "• `/sil` — Gruptaki tüm mesajları siler\n"
+        "• `/sil <sayi>` — Son N mesajı siler\n"
+        "• `/pro` — Kullanıcıya silme yetkisi ver\n"
+        "• `/unpro` — Kullanıcının silme yetkisini al\n"
+        "• `/yetki` — Kullanıcıya pro verme yetkisi ver _(Kurucu)_\n"
+        "• `/yetkial` — Kullanıcının pro verme yetkisini al _(Kurucu)_\n\n"
+        "⚠️ Komutları sadece yetkili kişiler kullanabilir." + DEV,
+        parse_mode="Markdown"
+    )
+
+@ensure_group
+async def cmd_pro(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if not can_give_pro(update.effective_user.id):
+        await msg.reply_text("🚫 Yetkin yok!" + DEV)
+        return
+    if not msg.reply_to_message:
+        await msg.reply_text("❗ Kullanım: Birine yanıt verip `/pro` yaz." + DEV, parse_mode="Markdown")
+        return
+    target = msg.reply_to_message.from_user
+    tid  = target.id
+    name = target.first_name or str(tid)
+    pro_users[tid] = name
+    if DATABASE_URL:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO pro_users (user_id, name) VALUES (%s,%s) "
+                    "ON CONFLICT (user_id) DO UPDATE SET name=%s",
+                    (str(tid), name, name)
+                )
+    await msg.reply_text(f"✅ *{name}* silme yetkisi aldı!" + DEV, parse_mode="Markdown")
+
+@ensure_group
+async def cmd_unpro(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if not can_give_pro(update.effective_user.id):
+        await msg.reply_text("🚫 Yetkin yok!" + DEV)
+        return
+    if not msg.reply_to_message:
+        await msg.reply_text("❗ Kullanım: Birine yanıt verip `/unpro` yaz." + DEV, parse_mode="Markdown")
+        return
+    target = msg.reply_to_message.from_user
+    tid  = target.id
+    name = target.first_name or str(tid)
+    pro_users.pop(tid, None)
+    if DATABASE_URL:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM pro_users WHERE user_id=%s", (str(tid),))
+    await msg.reply_text(f"❌ *{name}* silme yetkisi alındı." + DEV, parse_mode="Markdown")
+
+@ensure_group
+async def cmd_yetki(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if update.effective_user.id != FOUNDER_ID:
+        await msg.reply_text("🚫 Yetkin yok!" + DEV)
+        return
+    if not msg.reply_to_message:
+        await msg.reply_text("❗ Kullanım: Birine yanıt verip `/yetki` yaz." + DEV, parse_mode="Markdown")
+        return
+    target = msg.reply_to_message.from_user
+    tid  = target.id
+    name = target.first_name or str(tid)
+    pro_delegators[tid] = name
+    if DATABASE_URL:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO pro_delegators (user_id, name) VALUES (%s,%s) "
+                    "ON CONFLICT (user_id) DO UPDATE SET name=%s",
+                    (str(tid), name, name)
+                )
+    await msg.reply_text(f"✅ *{name}* artık başkalarına pro yetkisi verebilir!" + DEV, parse_mode="Markdown")
+
+@ensure_group
+async def cmd_yetkial(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if update.effective_user.id != FOUNDER_ID:
+        await msg.reply_text("🚫 Yetkin yok!" + DEV)
+        return
+    if not msg.reply_to_message:
+        await msg.reply_text("❗ Kullanım: Birine yanıt verip `/yetkial` yaz." + DEV, parse_mode="Markdown")
+        return
+    target = msg.reply_to_message.from_user
+    tid  = target.id
+    name = target.first_name or str(tid)
+    pro_delegators.pop(tid, None)
+    if DATABASE_URL:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM pro_delegators WHERE user_id=%s", (str(tid),))
+    await msg.reply_text(f"❌ *{name}* pro verme yetkisi alındı." + DEV, parse_mode="Markdown")
+
+@ensure_group
+async def cmd_sil(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update.effective_user.id):
+        await update.message.reply_text("🚫 Yetkin yok!" + DEV)
         return
 
-    print("[*] Sənin qrupunun mövcud üzvləri yoxlanılır...")
-    
-    # Sənin qrupundakı mövcud adamların ID-lərini yadda saxlayırıq (Skip etmək üçün)
-    existing_users = set()
-    async for user in userbot.iter_participants(target):
-        existing_users.add(user.id)
+    cid = update.effective_chat.id
+    limit = 0
 
-    print(f"[+] Sənin qrupunda artıq {len(existing_users)} nəfər var. Dubllar avtomatik skip ediləcək.")
-    print("[*] Hədəf qrupdan aktiv insanlar çəkilir...")
-
-    participants = []
-    # Hədəf qrupun üzvlərini çəkirik
-    async for user in userbot.iter_participants(source):
-        if not user.bot and user.username:
-            # Əgər adam artıq sənin qrupunda VARSA, siyahıya əlavə etmirik (SKIP)
-            if user.id in existing_users:
-                continue
-            
-            # Yalnız son vaxtlar aktiv olan insanları seçirik
-            if isinstance(user.status, (UserStatusOnline, UserStatusRecently, UserStatusLastWeek)):
-                participants.append(user)
-
-    print(f"[+] Əlavə edilə biləcek {len(participants)} yeni şəxs tapıldı. Proses başlayır...")
-
-    added_count = 0  # Əlavə olunan adamları saymaq üçün
-
-    # Ekleme döngüsü
-    for user in participants:
+    if ctx.args and len(ctx.args) > 0:
         try:
-            await userbot(InviteToChannelRequest(target, [user]))
-            added_count += 1
-            print(f"[{added_count}] Əlavə edildi: {user.username}")
-            
-            # 12 saniyəlik təhlükəsiz interval
-            await asyncio.sleep(12) 
-            
-        except PeerFloodError:
-            print(f"[-] Telegram limitinə takıldı (FloodWait). Bu hesab üçün işlem durduruldu. Toplam {added_count} nəfər əlavə edildi.")
-            break
-        except UserPrivacyRestrictedError:
-            continue
-        except UserAlreadyParticipantError:
-            continue
+            limit = int(ctx.args[0])
+            if limit <= 0:
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text(
+                "❗ Kullanım: `/sil <sayi>` — Örnek: `/sil 100`" + DEV,
+                parse_mode="Markdown"
+            )
+            return
+
+    bildirim = await update.message.reply_text("🗑 Mesajlar siliniyor, lütfen bekleyin...")
+
+    async def do_delete():
+        silinen = 0
+        batch   = []
+        try:
+            await pyro.get_chat(cid)
+        except Exception:
+            try:
+                async for dialog in pyro.get_dialogs():
+                    if dialog.chat.id == cid:
+                        break
+            except Exception:
+                pass
+
+        try:
+            async for msg in pyro.get_chat_history(
+                cid, limit=limit if limit > 0 else 100000
+            ):
+                if msg.id == bildirim.message_id:
+                    continue
+                batch.append(msg.id)
+                if len(batch) == 100:
+                    try:
+                        await pyro.delete_messages(cid, batch)
+                        silinen += len(batch)
+                    except Exception as e:
+                        print(f"Silme hatası: {e}")
+                    batch = []
+                    await asyncio.sleep(0.1)
+
+            if batch:
+                try:
+                    await pyro.delete_messages(cid, batch)
+                    silinen += len(batch)
+                except Exception as e:
+                    print(f"Silme hatası: {e}")
+
         except Exception as e:
-            print(f"[-] Xəta: {e}")
-            await asyncio.sleep(2)
+            try:
+                await bildirim.edit_text(f"❌ Hata: {e}" + DEV)
+            except Exception:
+                pass
+            return
 
-    print(f"[🏁] Döngü dayandı. Bu hesab cəmi {added_count} nəfər əlavə edə bildi.")
+        try:
+            await bildirim.edit_text(
+                f"✅ *{silinen}* mesaj silindi!" + DEV, parse_mode="Markdown"
+            )
+        except Exception:
+            pass
 
-async def main():
-    await userbot.start()
-    await bot.run_until_disconnected()
+    asyncio.create_task(do_delete())
+
+async def post_init(tg_app: Application):
+    init_db()
+    load_pro_users()
+
+    await pyro.start()
+    print("Pyrogram başladı!")
+
+    print("Qruplar yüklənir...")
+    for gid in GROUP_IDS:
+        try:
+            async for dialog in pyro.get_dialogs():
+                if dialog.chat.id == gid:
+                    print(f"Qrup tanındı: {dialog.chat.title}")
+                    break
+        except Exception as e:
+            print(f"Qrup yüklənə bilmədi {gid}: {e}")
+
+    await tg_app.bot.set_my_commands([
+        BotCommand("start",    "Botu başlat"),
+        BotCommand("sil",      "Mesajları sil"),
+        BotCommand("pro",      "Silme yetkisi ver"),
+        BotCommand("unpro",    "Silme yetkisini al"),
+        BotCommand("yetki",    "Pro verme yetkisi ver"),
+        BotCommand("yetkial",  "Pro verme yetkisini al"),
+    ])
+
+async def post_shutdown(tg_app: Application):
+    try:
+        await pyro.stop()
+    except Exception:
+        pass
+
+def main():
+    tg_app = (
+        Application.builder()
+        .token(TOKEN)
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
+        .build()
+    )
+    tg_app.add_handler(CommandHandler("start",   cmd_start))
+    tg_app.add_handler(CommandHandler("sil",     cmd_sil))
+    tg_app.add_handler(CommandHandler("pro",     cmd_pro))
+    tg_app.add_handler(CommandHandler("unpro",   cmd_unpro))
+    tg_app.add_handler(CommandHandler("yetki",   cmd_yetki))
+    tg_app.add_handler(CommandHandler("yetkial", cmd_yetkial))
+
+    print("Bot başladı...")
+    tg_app.run_polling(
+        drop_pending_updates=True,
+        allowed_updates=Update.ALL_TYPES
+    )
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    main()
 
